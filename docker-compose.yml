@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  consent-form:
+    build: .
+    environment:
+      - NODE_ENV=production
+      - DISPLAY=:99
+    volumes:
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
+    # Optional: expose if you want to run as a service
+    # ports:
+    #   - "3000:3000"
