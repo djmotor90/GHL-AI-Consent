@@ -24,11 +24,36 @@ CAPTCHA_API_KEY=your_2captcha_api_key
 # Local development
 node server.js
 
+# Production with PM2 (recommended)
+npm run pm2:start
+
 # On Ubuntu server with Xvfb
 xvfb-run -a --server-args="-screen 0 1920x1080x24" node server.js
 
 # Using wrapper script
 ./runOnServer.sh
+```
+
+### PM2 Commands
+
+```bash
+# Start server
+npm run pm2:start
+
+# Stop server
+npm run pm2:stop
+
+# Restart server
+npm run pm2:restart
+
+# View logs
+npm run pm2:logs
+
+# Monitor status
+npm run pm2:status
+
+# Remove from PM2
+npm run pm2:delete
 ```
 
 ## 📁 Project Files
@@ -126,6 +151,7 @@ docker-compose logs -f
 - ✅ Automated reCAPTCHA v2 solving (2Captcha)
 - ✅ Phone number validation
 - ✅ Duplicate submission prevention
+- ✅ **PM2 process management - auto-restart & monitoring**
 - ✅ Works on headless servers (Xvfb)
 - ✅ Stealth plugin for bot detection bypass
 

@@ -5,8 +5,15 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ghl-consent-api",
+    "pm2:restart": "pm2 restart ghl-consent-api",
+    "pm2:delete": "pm2 delete ghl-consent-api",
+    "pm2:logs": "pm2 logs ghl-consent-api",
+    "pm2:monit": "pm2 monit",
+    "pm2:status": "pm2 status"
   },
   "keywords": [
     "ghl",
@@ -27,5 +34,8 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "socks-proxy-agent": "^8.0.5",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "pm2": "^6.0.14"
   }
 }

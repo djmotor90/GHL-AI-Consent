@@ -117,7 +117,74 @@ nano .env  # Add your API keys
 xvfb-run -a --server-args="-screen 0 1920x1080x24" node BrowserSubmitForm.js
 ```
 
-## Running as a Service (systemd)
+## Running as a Service with PM2 (Recommended)
+
+PM2 is the recommended way to run the server in production. It provides:
+- Auto-restart on crashes
+- Log management
+- Monitoring
+- Zero-downtime restarts
+- Startup script generation
+
+### Install PM2 Globally
+
+```bash
+sudo npm install -g pm2
+```
+
+### Start the Server
+
+```bash
+# Start server
+npm run pm2:start
+
+# Or use PM2 directly
+pm2 start ecosystem.config.js
+```
+
+### Setup Auto-Start on Server Reboot
+
+```bash
+# Generate startup script
+pm2 startup
+
+# Copy and run the command it outputs (will be something like):
+# sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u your-username --hp /home/your-username
+
+# Save PM2 process list
+pm2 save
+```
+
+### PM2 Commands
+
+```bash
+# View status
+pm2 status
+pm2 list
+
+# View logs
+pm2 logs ghl-consent-api
+pm2 logs --lines 100
+
+# Monitor in real-time
+pm2 monit
+
+# Restart
+pm2 restart ghl-consent-api
+
+# Stop
+pm2 stop ghl-consent-api
+
+# Delete from PM2
+pm2 delete ghl-consent-api
+
+# Reload with zero downtime
+pm2 reload ghl-consent-api
+```
+
+## Running as a Service (systemd - Alternative)
+
+If you prefer systemd instead of PM2:
 
 Create `/etc/systemd/system/ghl-consent.service`:
 
@@ -131,7 +198,7 @@ Type=simple
 User=your-username
 WorkingDirectory=/opt/GHLconsent
 Environment="DISPLAY=:99"
-ExecStart=/usr/bin/xvfb-run -a --server-args="-screen 0 1920x1080x24" /usr/bin/node BrowserSubmitForm.js
+ExecStart=/usr/bin/xvfb-run -a --server-args="-screen 0 1920x1080x24" /usr/bin/node server.js
 Restart=on-failure
 RestartSec=10
 
