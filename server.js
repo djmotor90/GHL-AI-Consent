@@ -25,65 +25,41 @@ async function solveRecaptchaV2(page, siteKey) {
     const axios = (await import('axios')).default;
     const pageUrl = page.url();
     
-    const submitResponse = await axios.get('http://2captcha.com/in.php', {
-        params: {
-            key: CAPTCHA_API_KEY,
-            method: 'userrecaptcha',
-            googlekey: siteKey,
-            pageurl: pageUrl,
-            json: 1
+    const response = await axios.post('https://api.2captcha.com/createTask', {
+        clientKey: CAPTCHA_API_KEY,
+        task: {
+            type: 'RecaptchaV2TaskProxyless',
+            websiteURL: pageUrl,
+            websiteKey: siteKey,
+            isInvisible: false
         }
     });
     
-    if (submitResponse.data.status !== 1) {
-        throw new Error(`2Captcha submission failed: ${submitResponse.data.request}`);
+    if (!response.data.taskId) {
+        throw new Error(`2Captcha submission failed: ${JSON.stringify(response.data)}`);
     }
     
-    const captchaId = submitResponse.data.request;
-    console.log(`⏳ Captcha submitted to 2Captcha (ID: ${captchaId}), waiting for solution...`);
+    const taskId = response.data.taskId;
+    console.log(`⏳ Captcha submitted to 2Captcha (ID: ${taskId}), waiting for solution...`);
     
-    let solution = null;
-    const maxAttempts = 60;
-    
-    for (let i = 0; i < maxAttempts; i++) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+    // Poll for solution
+    for (let i = 0; i < 60; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        const resultResponse = await axios.get('http://2captcha.com/res.php', {
-            params: {
-                key: CAPTCHA_API_KEY,
-                action: 'get',
-                id: captchaId,
-                json: 1
-            }
+        const result = await axios.post('https://api.2captcha.com/getTaskResult', {
+            clientKey: CAPTCHA_API_KEY,
+            taskId: taskId
         });
         
-        if (resultResponse.data.status === 1) {
-            solution = resultResponse.data.request;
-            console.log('✅ Captcha solved!');
-            break;
-        } else if (resultResponse.data.request !== 'CAPCHA_NOT_READY') {
-            throw new Error(`2Captcha error: ${resultResponse.data.request}`);
+        if (result.data.status === 'ready') {
+            console.log(`✅ Captcha solved! Cost: $${result.data.cost}`);
+            return result.data.solution.gRecaptchaResponse;
         }
+        
+        process.stdout.write('.');
     }
     
-    if (!solution) {
-        throw new Error('Captcha solving timed out after 180 seconds');
-    }
-    
-    await page.evaluate((token) => {
-        document.getElementById('g-recaptcha-response').innerHTML = token;
-        if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {
-            Object.keys(window.___grecaptcha_cfg.clients).forEach(key => {
-                const client = window.___grecaptcha_cfg.clients[key];
-                if (client && client.callback) {
-                    client.callback(token);
-                }
-            });
-        }
-    }, solution);
-    
-    console.log('✅ Captcha solution injected into page');
-    return solution;
+    throw new Error('Captcha solving timed out after 120 seconds');
 }
 
 async function submitConsentForm(phoneNumber, submissionId, formUrl, siteKey) {
@@ -129,19 +105,51 @@ async function submitConsentForm(phoneNumber, submissionId, formUrl, siteKey) {
         await page.waitForSelector(termsSelector);
         await page.click(termsSelector);
         
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for reCAPTCHA v3 to load and potentially trigger v2 challenge
+        console.log(`⏳ [${submissionId}] Waiting for reCAPTCHA v3...`);
+        await new Promise(resolve => setTimeout(resolve, 8000));
         
-        // Check for reCAPTCHA v2
-        const v2CaptchaExists = await page.$('iframe[src*="google.com/recaptcha/api2/anchor"]');
+        // Check for reCAPTCHA v2 challenge (appears after v3 detects bot)
+        const frames = page.frames();
+        const recaptchaV2Frame = frames.find(frame =>
+            frame.url().includes('google.com/recaptcha') && frame.url().includes('anchor')
+        );
         
-        if (v2CaptchaExists) {
-            console.log(`🤖 [${submissionId}] reCAPTCHA v2 detected, solving...`);
-            await solveRecaptchaV2(page, siteKey);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+        if (recaptchaV2Frame) {
+            console.log(`🤖 [${submissionId}] reCAPTCHA v2 challenge detected! Solving with 2Captcha...`);
+            const v2Token = await solveRecaptchaV2(page, siteKey);
+            
+            if (v2Token) {
+                // Inject the v2 token
+                await page.evaluate((token) => {
+                    const responseField = document.querySelector('textarea[name="g-recaptcha-response"]');
+                    if (responseField) {
+                        responseField.value = token;
+                        responseField.innerHTML = token;
+                    }
+                    
+                    const responseInput = document.querySelector('input[name="g-recaptcha-response"]');
+                    if (responseInput) {
+                        responseInput.value = token;
+                    }
+                    
+                    if (window.grecaptcha && window.grecaptcha.getResponse) {
+                        window.grecaptcha.getResponse = function() { return token; };
+                    }
+                }, v2Token);
+                
+                console.log(`✅ [${submissionId}] v2 token injected`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+                throw new Error('Failed to solve reCAPTCHA v2');
+            }
+        } else {
+            console.log(`✅ [${submissionId}] No v2 challenge - v3 passed`);
         }
         
         // Set up response listener
         let responseData = null;
+        let responseError = null;
         let responseReceived = false;
         
         page.on('response', async (response) => {
@@ -159,11 +167,13 @@ async function submitConsentForm(phoneNumber, submissionId, formUrl, siteKey) {
                             const json = JSON.parse(text);
                             responseData = json;
                             responseReceived = true;
+                            console.log(`✅ [${submissionId}] Success! Contact ID: ${json.contact?.id}`);
                         } catch (e) {
                             console.log(`⚠️  [${submissionId}] Response is not JSON`);
                         }
                     } else {
-                        responseData = { error: text, status };
+                        console.log(`❌ [${submissionId}] Error response: ${text}`);
+                        responseError = { error: text, status };
                         responseReceived = true;
                     }
                 } catch (e) {
@@ -186,12 +196,14 @@ async function submitConsentForm(phoneNumber, submissionId, formUrl, siteKey) {
             }
             
             if (responseData) {
-                console.log(`✅ [${submissionId}] Form submitted successfully!`);
+                console.log(`🎉 [${submissionId}] Form submitted successfully!`);
                 return {
                     success: true,
                     contactId: responseData.contact?.id,
                     data: responseData
                 };
+            } else if (responseError) {
+                throw new Error(`Form submission failed with status ${responseError.status}: ${responseError.error}`);
             } else {
                 throw new Error('No response received from form submission');
             }
