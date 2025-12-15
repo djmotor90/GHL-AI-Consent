@@ -25,10 +25,13 @@ RUN npm install
 # Copy application files
 COPY . .
 
-# Create startup script
+# Expose the port
+EXPOSE 8080
+
+# Create startup script to run the API server
 RUN echo '#!/bin/bash\n\
-xvfb-run -a --server-args="-screen 0 1920x1080x24" node BrowserSubmitForm.js\n\
+xvfb-run -a --server-args="-screen 0 1920x1080x24" node server.js\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
-# Run the application
+# Run the API server
 CMD ["/app/start.sh"]
