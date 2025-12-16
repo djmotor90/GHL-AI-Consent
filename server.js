@@ -117,29 +117,65 @@ async function submitConsentForm(phoneNumber, submissionId, formUrl, siteKey) {
         
         if (recaptchaV2Frame) {
             console.log(`🤖 [${submissionId}] reCAPTCHA v2 challenge detected! Solving with 2Captcha...`);
+            
+            // Try to click the checkbox first to activate it
+            try {
+                const recaptchaCheckbox = await page.$('iframe[src*="google.com/recaptcha/api2/anchor"]');
+                if (recaptchaCheckbox) {
+                    const checkboxFrame = await recaptchaCheckbox.contentFrame();
+                    if (checkboxFrame) {
+                        await checkboxFrame.click('.recaptcha-checkbox-border');
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+            } catch (e) {
+                console.log(`⚠️  [${submissionId}] Could not click checkbox, proceeding with token injection`);
+            }
+            
             const v2Token = await solveRecaptchaV2(page, siteKey);
             
             if (v2Token) {
-                // Inject the v2 token
+                // Inject the v2 token more thoroughly
                 await page.evaluate((token) => {
+                    // Set textarea response field
                     const responseField = document.querySelector('textarea[name="g-recaptcha-response"]');
                     if (responseField) {
                         responseField.value = token;
                         responseField.innerHTML = token;
                     }
                     
+                    // Set input response field
                     const responseInput = document.querySelector('input[name="g-recaptcha-response"]');
                     if (responseInput) {
                         responseInput.value = token;
                     }
                     
-                    if (window.grecaptcha && window.grecaptcha.getResponse) {
-                        window.grecaptcha.getResponse = function() { return token; };
+                    // Override grecaptcha.getResponse
+                    if (window.grecaptcha) {
+                        if (window.grecaptcha.getResponse) {
+                            window.grecaptcha.getResponse = function() { return token; };
+                        }
+                        
+                        // Trigger all callbacks in grecaptcha config
+                        if (window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients) {
+                            Object.keys(window.___grecaptcha_cfg.clients).forEach(key => {
+                                const client = window.___grecaptcha_cfg.clients[key];
+                                if (client && client.callback) {
+                                    try {
+                                        client.callback(token);
+                                    } catch (e) {
+                                        console.log('Callback error:', e);
+                                    }
+                                }
+                            });
+                        }
                     }
                 }, v2Token);
                 
                 console.log(`✅ [${submissionId}] v2 token injected`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Wait longer to ensure token is properly registered
+                await new Promise(resolve => setTimeout(resolve, 5000));
             } else {
                 throw new Error('Failed to solve reCAPTCHA v2');
             }
